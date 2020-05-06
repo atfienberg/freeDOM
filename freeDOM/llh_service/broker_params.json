@@ -1,0 +1,18 @@
+{
+    "req_addr": "ipc:///tmp/broker1",
+    "ctrl_addr": "ipc:///tmp/ctrl1",
+    "client_addr": "ipc:///tmp/broker1",
+    "service_addr": "ipc:///tmp/req1",
+    "poll_timeout": 1,
+    "flush_period": 5,
+    "model_file": "gaussian_nn_2million.h5",
+    "n_features": 3, 
+    "batch_size" : {
+      "n_hypos": 100,
+      "n_observations": 100000 
+    },
+    "transform_params": {
+      "feature_means": [ 1.0894459e-02, -9.6042268e-04,  1.0048270e+01],
+      "feature_stds": [12.909376,   5.7661057,  5.735433 ]
+    }
+}

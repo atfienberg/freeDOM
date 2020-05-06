@@ -23,7 +23,7 @@ def main():
         print("Usage: client_test.py <mu> <n_obs>")
         sys.exit(0)
 
-    with open("service_params.json") as f:
+    with open("broker_params.json") as f:
         params = json.load(f)
 
     client = LLHClient(req_addr=params["req_addr"], batch_size=params["batch_size"])

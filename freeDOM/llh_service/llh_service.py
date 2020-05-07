@@ -29,7 +29,9 @@ class LLHService:
 
     __slots__ = [
         "_eval_llh",
-        "_work_reqs",
+        "_work_reqs_in",
+        "_last_llh_out",
+        "_work_reqs_out",
         "_n_table_rows",
         "_n_obs_features",
         "_n_hypos",
@@ -63,12 +65,14 @@ class LLHService:
     ):
         self._eval_llh = eval_llh.eval_llh
 
-        self._work_reqs = []
+        self._work_reqs_in = []
+        self._work_reqs_out = []
 
         self._n_table_rows = batch_size["n_observations"]
 
         self._n_hypos = batch_size["n_hypos"]
         """number of hypotheses per batch"""
+        self._last_llh_out = tf.constant(np.zeros(self._n_hypos, np.float32))
 
         # note: my example has one "observation" feature,
         # This should be made more general
@@ -110,6 +114,9 @@ class LLHService:
         self._init_sockets(
             req_addr=req_addr, ctrl_addr=ctrl_addr, send_hwm=send_hwm, recv_hwm=recv_hwm
         )
+
+        # set tensorflow to asynchronous mode
+        tf.config.experimental.set_synchronous_execution(False)
 
     # @profile
     def start_work_loop(self):
@@ -203,7 +210,7 @@ class LLHService:
             header_frames=header_frames, start_ind=hypo_ind, stop_ind=stop_hypo_ind,
         )
 
-        self._work_reqs.append(work_item_dict)
+        self._work_reqs_in.append(work_item_dict)
         self._next_table_ind = stop_ind
         self._next_hypo_ind = stop_hypo_ind
 
@@ -238,19 +245,29 @@ class LLHService:
         self._last_flush = time.time()
         wstdout("F")
 
-        if self._work_reqs:
+        pending_llhs = self._last_llh_out
+
+        if self._work_reqs_in:
             wstdout("+")
+            # queue a new LLH calculation
             x_table = tf.constant(self._x_table)
             theta_table = tf.constant(self._theta_table)
             stop_inds = tf.constant(self._stop_inds)
-            llh_sums = self._eval_llh(x_table, theta_table, stop_inds, self._model)
-            llhs = llh_sums.numpy()
+            self._last_llh_out = self._eval_llh(
+                x_table, theta_table, stop_inds, self._model
+            )
 
-            for work_req in self._work_reqs:
+        if self._work_reqs_out:
+            wstdout("*")
+            # ship LLH data
+            # this will block until the previous evaluation is complete
+            llhs = pending_llhs.numpy()
+            for work_req in self._work_reqs_out:
                 llh_slice = llhs[work_req["start_ind"] : work_req["stop_ind"]]
                 self._req_sock.send_multipart(work_req["header_frames"] + [llh_slice])
 
-        self._work_reqs.clear()
+        self._work_reqs_out = self._work_reqs_in
+        self._work_reqs_in = []
         self._next_table_ind = 0
         self._next_hypo_ind = 0
         self._stop_inds[:] = self._n_table_rows
